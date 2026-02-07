@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -42,7 +43,7 @@ public class MainActivity extends Activity {
 
         imageView = new ImageView(this);
         imageView.setBackgroundColor(Color.BLACK);
-        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        imageView.setScaleType(ImageView.ScaleType.MATRIX);
         setContentView(imageView);
 
         running = true;
@@ -105,7 +106,17 @@ public class MainActivity extends Activity {
                 lastFile = file;
                 Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
                 if (bmp != null) {
-                    handler.post(() -> imageView.setImageBitmap(bmp));
+                    handler.post(() -> {
+                        int viewW = imageView.getWidth();
+                        int viewH = imageView.getHeight();
+                        float scale = (float) viewW / bmp.getWidth();
+                        float dy = (viewH - bmp.getHeight() * scale) / 2f;
+                        Matrix m = new Matrix();
+                        m.setScale(scale, scale);
+                        m.postTranslate(0, dy);
+                        imageView.setImageMatrix(m);
+                        imageView.setImageBitmap(bmp);
+                    });
                 }
             }
         }
@@ -162,12 +173,12 @@ public class MainActivity extends Activity {
     }
 
     private String readLine(InputStream in) throws Exception {
-        StringBuilder sb = new StringBuilder();
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int c;
         while ((c = in.read()) != -1) {
             if (c == '\n') break;
-            sb.append((char) c);
+            buf.write(c);
         }
-        return sb.toString();
+        return buf.toString(StandardCharsets.UTF_8.name());
     }
 }
