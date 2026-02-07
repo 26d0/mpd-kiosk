@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
         setContentView(imageView);
 
         running = true;
-        new Thread(this::pollLoop).start();
+        new Thread(this::eventLoop).start();
     }
 
     @Override
@@ -56,68 +56,71 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private void pollLoop() {
-        while (running) {
-            try {
-                update();
-            } catch (Exception ignored) {
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                break;
-            }
-        }
-    }
-
-    private void update() throws Exception {
+    private void eventLoop() {
         String host = BuildConfig.MPD_HOST;
         int port = BuildConfig.MPD_PORT;
 
-        try (Socket sock = new Socket(host, port)) {
-            sock.setSoTimeout(5000);
-            InputStream in = sock.getInputStream();
-            OutputStream out = sock.getOutputStream();
+        while (running) {
+            try (Socket sock = new Socket(host, port)) {
+                sock.setSoTimeout(5000);
+                InputStream in = sock.getInputStream();
+                OutputStream out = sock.getOutputStream();
 
-            // Read greeting
-            readLine(in);
+                // Read greeting
+                readLine(in);
 
-            // Get current song file
-            out.write("currentsong\n".getBytes(StandardCharsets.UTF_8));
-            out.flush();
+                while (running) {
+                    // Get current song file
+                    out.write("currentsong\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
 
-            String file = null;
-            String line;
-            while (!(line = readLine(in)).equals("OK")) {
-                if (line.startsWith("file: ")) {
-                    file = line.substring(6);
+                    String file = null;
+                    String line;
+                    while (!(line = readLine(in)).equals("OK")) {
+                        if (line.startsWith("file: ")) {
+                            file = line.substring(6);
+                        }
+                    }
+
+                    // Update album art if track changed
+                    if (file != null && !file.equals(lastFile)) {
+                        byte[] imageData = fetchPicture(in, out, file);
+                        if (imageData != null && imageData.length > 0) {
+                            lastFile = file;
+                            Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
+                            if (bmp != null) {
+                                handler.post(() -> {
+                                    int viewW = imageView.getWidth();
+                                    int viewH = imageView.getHeight();
+                                    float scale = (float) viewW / bmp.getWidth();
+                                    float dy = (viewH - bmp.getHeight() * scale) / 2f;
+                                    Matrix m = new Matrix();
+                                    m.setScale(scale, scale);
+                                    m.postTranslate(0, dy);
+                                    imageView.setImageMatrix(m);
+                                    imageView.setImageBitmap(bmp);
+                                });
+                            }
+                        }
+                    }
+
+                    // Wait for player state change (blocks until MPD notifies)
+                    sock.setSoTimeout(0);
+                    out.write("idle player\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                    while (!(readLine(in)).equals("OK")) {
+                        // consume "changed: player" etc.
+                    }
+                    sock.setSoTimeout(5000);
                 }
+            } catch (Exception ignored) {
             }
 
-            if (file == null) return;
-
-            // Skip if same track
-            if (file.equals(lastFile)) return;
-
-            // Fetch album art via readpicture (chunked)
-            byte[] imageData = fetchPicture(in, out, file);
-
-            if (imageData != null && imageData.length > 0) {
-                lastFile = file;
-                Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
-                if (bmp != null) {
-                    handler.post(() -> {
-                        int viewW = imageView.getWidth();
-                        int viewH = imageView.getHeight();
-                        float scale = (float) viewW / bmp.getWidth();
-                        float dy = (viewH - bmp.getHeight() * scale) / 2f;
-                        Matrix m = new Matrix();
-                        m.setScale(scale, scale);
-                        m.postTranslate(0, dy);
-                        imageView.setImageMatrix(m);
-                        imageView.setImageBitmap(bmp);
-                    });
-                }
+            // Wait before reconnecting
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                break;
             }
         }
     }
