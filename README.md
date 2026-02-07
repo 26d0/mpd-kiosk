@@ -1,6 +1,8 @@
 # mpd-kiosk
 
-Android app that displays album art from an MPD server in fullscreen. Designed for kiosk/digital-frame use.
+Android app that displays album art from an MPD server in fullscreen.
+
+I personally made this for the Rabbit R1.
 
 ## Setup
 
